@@ -10,3 +10,7 @@ all.json
 
 # Environment variables file
 .env
+
+# LLM cache and taxonomy
+ai_cache.json
+taxonomy.json
