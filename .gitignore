@@ -14,3 +14,7 @@ all.json
 # LLM cache and taxonomy
 ai_cache.json
 taxonomy.json
+
+# Ignore generated Udemy output files
+udemy_courses.xlsx
+udemy_courses.html
