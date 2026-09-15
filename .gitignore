@@ -1,0 +1,6 @@
+# Ignore Udemy export JSON files
+udemy_courses.json
+udemy_courses_archived.json
+
+# Optional: ignore combined exports
+all.json
