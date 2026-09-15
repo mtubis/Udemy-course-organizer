@@ -4,3 +4,6 @@ udemy_courses_archived.json
 
 # Optional: ignore combined exports
 all.json
+
+# Virtual environment
+.venv/
