@@ -349,9 +349,20 @@ def write_xlsx(courses: list[dict], path: Path):
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="A435F0")
         cell.alignment = Alignment(vertical="center")
+    # sanitize function to remove illegal XML characters (which break openpyxl)
+    illegal_re = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
+
+    def _clean(v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return illegal_re.sub("", v)
+        if isinstance(v, (list, tuple)):
+            return ", ".join(_clean(x) or "" for x in v)
+        return v
 
     for c in courses:
-        ws.append([c.get(key) for key, _ in COLUMNS])
+        ws.append([_clean(c.get(key)) for key, _ in COLUMNS])
         row = ws.max_row
         link_cell = ws.cell(row=row, column=len(COLUMNS))
         link_cell.hyperlink = c["url"]
@@ -378,7 +389,7 @@ def write_xlsx(courses: list[dict], path: Path):
         a[0] += 1
         a[1] += c["hours"] or 0
     for cat, (n, h) in sorted(agg.items(), key=lambda kv: -kv[1][0]):
-        summary.append([cat, n, round(h, 1)])
+        summary.append([illegal_re.sub("", cat), n, round(h, 1)])
     summary.column_dimensions["A"].width = 36
     summary.column_dimensions["B"].width = 14
     summary.column_dimensions["C"].width = 16
