@@ -91,23 +91,79 @@ def get_client():
 
 
 def ask_json(client, model: str, system: str, user: str, retries: int = 3):
-    """Send a prompt and expect a pure JSON response; retry on parse errors."""
+    """Send a prompt and expect a pure JSON response; retry on parse errors.
+
+    The Anthropic Python client API changed over versions; try multiple call
+    patterns (messages.create, responses.create) and be flexible when
+    extracting the returned text.
+    """
     last_err = None
     for attempt in range(retries):
-        resp = client.messages.create(
-            model=model,
-            max_tokens=8000,
-            temperature=0,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.S)
         try:
+            # Try common client patterns.
+            try:
+                resp = client.messages.create(
+                    model=model,
+                    max_tokens=8000,
+                    system=system,
+                    messages=[{"role": "user", "content": user}],
+                )
+            except TypeError:
+                # Some client versions accept 'temperature' or different names;
+                # fall back to responses.create which is used by newer SDKs.
+                try:
+                    resp = client.messages.create(
+                        model=model,
+                        max_tokens=8000,
+                        temperature=0,
+                        system=system,
+                        messages=[{"role": "user", "content": user}],
+                    )
+                except Exception:
+                    resp = client.responses.create(
+                        model=model,
+                        input=(system or "") + "\n\n" + user,
+                        max_tokens_to_sample=8000,
+                        temperature=0,
+                    )
+
+            # Flexible extraction of text from different response shapes.
+            text = ""
+            if hasattr(resp, "content"):
+                text = "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text")
+            elif hasattr(resp, "output_text"):
+                text = resp.output_text
+            elif hasattr(resp, "output"):
+                parts = []
+                for item in getattr(resp, "output") or []:
+                    cont = None
+                    if isinstance(item, dict):
+                        cont = item.get("content")
+                    else:
+                        cont = getattr(item, "content", None)
+                    if not cont:
+                        continue
+                    for c in cont:
+                        if isinstance(c, dict):
+                            parts.append(c.get("text", ""))
+                        else:
+                            parts.append(getattr(c, "text", ""))
+                text = "".join(parts)
+            elif hasattr(resp, "choices"):
+                text = "".join(getattr(c, "text", "") for c in resp.choices)
+            else:
+                text = str(resp)
+
+            text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.S)
             return json.loads(text)
+
         except json.JSONDecodeError as e:
             last_err = e
             time.sleep(1.5 * (attempt + 1))
+        except Exception as e:
+            last_err = e
+            time.sleep(1.5 * (attempt + 1))
+
     raise RuntimeError(f"Model did not return valid JSON: {last_err}")
 
 
