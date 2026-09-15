@@ -12,8 +12,8 @@ Working files (in CWD, safe to commit):
     ai_cache.json   - classification results per course id; subsequent runs
                      only classify new courses
 
-Requires: pip install anthropic openpyxl
-Env vars: ANTHROPIC_API_KEY (required unless --no-ai), ANTHROPIC_MODEL (optional)
+Requires: pip install anthropic openpyxl    # optional: pip install openai for OpenAI provider
+Env vars: ANTHROPIC_API_KEY or OPENAI_API_KEY (required unless --no-ai), ANTHROPIC_MODEL (optional)
 """
 
 from __future__ import annotations
@@ -80,81 +80,110 @@ def load_courses(path: Path) -> list[dict]:
 # --------------------------------------------------------------------------- #
 
 
-def get_client():
-    try:
-        import anthropic
-    except ImportError:
-        sys.exit("Missing package 'anthropic': pip install anthropic")
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        sys.exit("Set ANTHROPIC_API_KEY or use --no-ai.")
-    return anthropic.Anthropic()
+def get_client(provider: str):
+    """Return a tuple (provider, client/module)."""
+    provider = (provider or os.environ.get("UD_PROVIDER", "anthropic")).lower()
+    if provider == "anthropic":
+        try:
+            import anthropic
+        except ImportError:
+            sys.exit("Missing package 'anthropic': pip install anthropic")
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            sys.exit("Set ANTHROPIC_API_KEY or use --no-ai.")
+        return "anthropic", anthropic
+    elif provider == "openai":
+        try:
+            import openai
+        except ImportError:
+            sys.exit("Missing package 'openai': pip install openai")
+        if not (os.environ.get("OPENAI_API_KEY") or getattr(openai, 'api_key', None)):
+            sys.exit("Set OPENAI_API_KEY or configure openai.api_key, or use --no-ai.")
+        return "openai", openai
+    else:
+        sys.exit(f"Unknown provider: {provider}. Choose 'anthropic' or 'openai'.")
 
 
-def ask_json(client, model: str, system: str, user: str, retries: int = 3):
+def ask_json(provider_client, model: str, system: str, user: str, retries: int = 3):
     """Send a prompt and expect a pure JSON response; retry on parse errors.
 
     The Anthropic Python client API changed over versions; try multiple call
     patterns (messages.create, responses.create) and be flexible when
     extracting the returned text.
     """
+    provider, client = provider_client if isinstance(provider_client, tuple) else ("anthropic", provider_client)
     last_err = None
     for attempt in range(retries):
         try:
-            # Try common client patterns.
-            try:
-                resp = client.messages.create(
-                    model=model,
-                    max_tokens=8000,
-                    system=system,
-                    messages=[{"role": "user", "content": user}],
-                )
-            except TypeError:
-                # Some client versions accept 'temperature' or different names;
-                # fall back to responses.create which is used by newer SDKs.
+            if provider == "anthropic":
+                # Try Anthropics patterns
                 try:
                     resp = client.messages.create(
                         model=model,
                         max_tokens=8000,
-                        temperature=0,
                         system=system,
                         messages=[{"role": "user", "content": user}],
                     )
-                except Exception:
-                    resp = client.responses.create(
+                except TypeError:
+                    try:
+                        resp = client.messages.create(
+                            model=model,
+                            max_tokens=8000,
+                            temperature=0,
+                            system=system,
+                            messages=[{"role": "user", "content": user}],
+                        )
+                    except Exception:
+                        resp = client.responses.create(
+                            model=model,
+                            input=(system or "") + "\n\n" + user,
+                            max_tokens_to_sample=8000,
+                            temperature=0,
+                        )
+
+                # extract text
+                if hasattr(resp, "content"):
+                    text = "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text")
+                elif hasattr(resp, "output_text"):
+                    text = resp.output_text
+                else:
+                    text = str(resp)
+
+            elif provider == "openai":
+                # Use openai module
+                # prefer ChatCompletions (chat messages)
+                try:
+                    # Newer openai libs use openai.ChatCompletion.create
+                    resp = client.ChatCompletion.create(
                         model=model,
-                        input=(system or "") + "\n\n" + user,
-                        max_tokens_to_sample=8000,
+                        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
                         temperature=0,
+                        max_tokens=4000,
                     )
-
-            # Flexible extraction of text from different response shapes.
-            text = ""
-            if hasattr(resp, "content"):
-                text = "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text")
-            elif hasattr(resp, "output_text"):
-                text = resp.output_text
-            elif hasattr(resp, "output"):
-                parts = []
-                for item in getattr(resp, "output") or []:
-                    cont = None
-                    if isinstance(item, dict):
-                        cont = item.get("content")
+                    # extract
+                    if hasattr(resp, "choices") and resp.choices:
+                        ch = resp.choices[0]
+                        text = getattr(ch, "message", {}).get("content") if hasattr(ch, "message") else ch.get("message", {}).get("content") if isinstance(ch, dict) else getattr(ch, "text", "")
                     else:
-                        cont = getattr(item, "content", None)
-                    if not cont:
-                        continue
-                    for c in cont:
-                        if isinstance(c, dict):
-                            parts.append(c.get("text", ""))
+                        text = str(resp)
+                except Exception:
+                    # fallback to responses API if available
+                    try:
+                        resp = client.responses.create(
+                            model=model,
+                            input=(system or "") + "\n\n" + user,
+                        )
+                        if hasattr(resp, "output_text"):
+                            text = resp.output_text
+                        elif hasattr(resp, "choices") and resp.choices:
+                            text = getattr(resp.choices[0], "text", "")
                         else:
-                            parts.append(getattr(c, "text", ""))
-                text = "".join(parts)
-            elif hasattr(resp, "choices"):
-                text = "".join(getattr(c, "text", "") for c in resp.choices)
+                            text = str(resp)
+                    except Exception as e:
+                        raise
             else:
-                text = str(resp)
+                raise RuntimeError(f"Unsupported provider: {provider}")
 
-            text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.S)
+            text = re.sub(r"^```(?:json)?\s*|\s*```$", "", (text or "").strip(), flags=re.S)
             return json.loads(text)
 
         except json.JSONDecodeError as e:
@@ -254,7 +283,7 @@ def categorize(courses: list[dict], args) -> list[dict]:
             c["level"] = ""
         return courses
 
-    client = get_client()
+    client = get_client(args.provider)
 
     if taxonomy_path.exists():
         taxonomy = json.loads(taxonomy_path.read_text(encoding="utf-8"))
@@ -463,6 +492,7 @@ def main():
     p.add_argument("--taxonomy", default="taxonomy.json")
     p.add_argument("--cache", default="ai_cache.json")
     p.add_argument("--model", default=DEFAULT_MODEL)
+    p.add_argument("--provider", choices=["anthropic", "openai"], default=os.environ.get("UD_PROVIDER", "anthropic"), help="LLM provider to use")
     p.add_argument("--batch-size", type=int, default=30)
     p.add_argument("--reclassify", action="store_true", help="ignore cache and reclassify all courses")
     p.add_argument("--no-ai", action="store_true", help="no LLM — use Udemy categories")

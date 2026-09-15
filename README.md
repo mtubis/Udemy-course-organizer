@@ -1,8 +1,31 @@
 Udemy course organizer
 
 1. Log in to udemy.com, open Developer Tools (F12) → Console, paste `export_courses.js` → this will download `udemy_courses.json`.
-2. Install dependencies: `pip install anthropic openpyxl`, then set `ANTHROPIC_API_KEY=...` in your environment.
-3. Run `python udemy_organize.py udemy_courses.json`
+2. Install dependencies and set API keys:
+
+    - For Anthropic (default):
+       ```bash
+       pip install anthropic openpyxl
+       export ANTHROPIC_API_KEY=...
+       ```
+
+    - Or for OpenAI:
+       ```bash
+       pip install openai openpyxl
+       export OPENAI_API_KEY=...
+       ```
+
+    You can also set the preferred provider via `UD_PROVIDER` env var (values: `anthropic` or `openai`).
+
+3. Run `python udemy_organize.py udemy_courses.json` (optionally specify provider):
+
+    ```bash
+    # default (Anthropic)
+    python udemy_organize.py udemy_courses.json
+
+    # explicitly use OpenAI
+    python udemy_organize.py udemy_courses.json --provider openai
+    ```
    → produces `udemy_courses.xlsx` (sheets: Courses + Summary) and `udemy_courses.html` (search + filters).
 
 Working files:
