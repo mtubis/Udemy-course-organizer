@@ -7,3 +7,6 @@ all.json
 
 # Virtual environment
 .venv/
+
+# Environment variables file
+.env
