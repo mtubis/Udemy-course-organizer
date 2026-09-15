@@ -9,7 +9,7 @@ This small toolkit helps you turn a Udemy export (a JSON file of your enrolled c
 
 Why this is not fully automatic
 --------------------------------
-Udemy actively protects its site from automated scraping. This project does not attempt to bypass those protections. Instead, you manually export your courses from your account (a single, explicit action) and then run the local script to process the export. This keeps the workflow simple, safer for your account, and compliant with Udemy's terms of service.
+Udemy actively protects its site from automated scraping. This project does not attempt to bypass those protections. Instead, you manually export your courses from your account (a single, explicit action) and then run the local script to process the export. This keeps the workflow simple, safer for your account, and uses an unofficial internal endpoint from your own logged-in browser session; may stop working if Udemy changes it; use at your own discretion.
 
 Expected workflow and results
 -----------------------------
