@@ -13,6 +13,8 @@ Udemy course organizer
        ```bash
        pip install openai openpyxl
        export OPENAI_API_KEY=...
+       # optional: select a preferred OpenAI model
+       export OPENAI_MODEL=gpt-5.6-luna
        ```
 
     You can also set the preferred provider via `UD_PROVIDER` env var (values: `anthropic` or `openai`).

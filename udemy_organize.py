@@ -499,6 +499,11 @@ def main():
     p.add_argument("--skip-practice-tests", action="store_true", help="skip practice test courses")
     args = p.parse_args()
 
+    # adjust model default for OpenAI provider if the current default is Anthropic
+    if args.provider == "openai" and "claude" in (args.model or "").lower():
+        args.model = os.environ.get("OPENAI_MODEL", "gpt-3.5-turbo")
+        print(f"Provider is OpenAI, using model: {args.model}")
+
     courses = load_courses(Path(args.input))
     if args.skip_practice_tests:
         courses = [c for c in courses if not c["is_practice_test"]]
